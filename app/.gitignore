@@ -1,0 +1,5 @@
+/humanizer
+/build/
+/dist/
+/.cache/
+*.log

@@ -57,7 +57,7 @@ cp "$AD/humanizer.png" "$AD/.DirIcon"
 mkdir -p "$AD/usr/share/icons/hicolor/256x256/apps" "$AD/usr/share/applications" "$AD/usr/share/licenses/humanizer"
 cp packaging/humanizer.png "$AD/usr/share/icons/hicolor/256x256/apps/humanizer.png"
 cp packaging/appimage/humanizer.desktop "$AD/usr/share/applications/humanizer.desktop"
-cp LICENSE NOTICE "$AD/usr/share/licenses/humanizer/"
+cp LICENSE NOTICE "$AD/usr/share/licenses/humanizer/" 2>/dev/null || cp ../LICENSE ../NOTICE "$AD/usr/share/licenses/humanizer/"
 
 TOOL="$CACHE/appimagetool-$HOST_ARCH.AppImage"
 if [ ! -x "$TOOL" ]; then
