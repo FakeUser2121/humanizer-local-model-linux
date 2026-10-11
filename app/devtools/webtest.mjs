@@ -1,5 +1,5 @@
 import { getJSON, postJSON, countTokens } from '../web/js/api.js';
-import { planDocument, needsSections, newDocumentJob, documentSignature, readDocumentJob, jobMatches, jobDone, combinedDocument, runDocumentSections, SECTION_MAX } from '../web/js/document.js';
+import { planDocument, needsSections, newDocumentJob, documentSignature, readDocumentJob, jobMatches, jobDone, combinedDocument, runDocumentSections, SECTION_MAX, approxTokens } from '../web/js/document.js';
 import { store, addHistory, loadHistory, clearHistory } from '../web/js/history.js';
 // 网页纯逻辑的单测(不需要浏览器):node devtools/webtest.mjs 或 bun devtools/webtest.mjs
 import { activeFacts, protectFacts, restoreFacts, streamView, withFactGuard, FACT_TRIES } from '../web/js/facts.js';
@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { pyStrip, countText, numberCheck, estimateTokens, isLongDraft } from '../web/js/text.js';
 import { buildPrompt, nPredictFor, selfCheck } from '../web/js/prompt.js';
-import { tokenize, diffTokens } from '../web/js/diff.js';
+import { tokenize, diffTokens, stitchDiffs } from '../web/js/diff.js';
 import { hanCount, wentChinese, wentEnglish, langDrift, withLangGuard, LANG_RETRIES } from '../web/js/guard.js';
 
 let fails = 0;
@@ -402,6 +402,80 @@ for (const s of fx.samples) {
     .concat([...html.matchAll(/data-i18n-attr="([^"]+)"/g)].flatMap((m) => m[1].split(';').map((x) => x.split(':')[1])));
   const missing = [...new Set(used)].filter((k) => !zh.has(k) || !en.has(k));
   ok(!missing.length, `index.html 用到的文案键都有中英两份${missing.length ? ':缺 ' + missing.join(',') : ''}`);
+}
+
+// 17. 分段拼差异 stitchDiffs:整篇算不了(长文 33 段那种)才走这里;
+// 能整篇算的文档,拼出来必须和整篇算一字不差(回归锁)。
+{
+  // 17a. 回归锁:能整篇算的,拼 == 整篇算(标记、比例、字符位置全等)
+  const A = 'The quick brown fox jumps over the lazy dog near the river bank at dawn. It was a quiet morning.';
+  const B = 'The quick brown fox leaps over the lazy dog near the river bank at dusk. It was a quiet morning.';
+  const c = diffTokens(tokenize(A), tokenize(B));
+  const s = stitchDiffs([
+    { a: 'The quick brown fox jumps ', b: 'The quick brown fox leaps ' },
+    { a: 'over the lazy dog near the river bank at dawn. It was a quiet morning.', b: 'over the lazy dog near the river bank at dusk. It was a quiet morning.' },
+  ]);
+  ok(!s.failed && JSON.stringify([...c.a]) === JSON.stringify([...s.diff.a]) &&
+    JSON.stringify([...c.b]) === JSON.stringify([...s.diff.b]) && c.ratio === s.diff.ratio,
+    'stitch:能整篇算的文档,拼出来和整篇算一字不差');
+  ok(s.aTok.map((t) => t.t).join('') === A && s.bTok.map((t) => t.t).join('') === B, 'stitch:拼好的 token 流和原文逐字一致');
+
+  // 17b. 长文:整篇算返回 null,分 12 段拼则全覆盖
+  const words = (n, p) => Array.from({ length: n }, (_, i) => p + i).join(' ');
+  const bigA = words(6000, 'w'), bigB = words(6000, 'v');
+  ok(diffTokens(tokenize(bigA), tokenize(bigB)) === null, 'stitch:6000 词整篇算确实超上限(null)');
+  const aw = bigA.split(' '), bw = bigB.split(' ');
+  const pairs = [];
+  for (let i = 0; i < 12; i++) pairs.push({ a: aw.slice(i * 500, (i + 1) * 500).join(' '), b: bw.slice(i * 500, (i + 1) * 500).join(' ') });
+  const t0 = Date.now();
+  const st = stitchDiffs(pairs);
+  ok(!st.failed && st.diff.a.length === 6000 && st.diff.b.length === 6000, `stitch:12 段全覆盖(${Date.now() - t0}ms)`);
+  ok([...st.diff.b].some((x) => x), 'stitch:有词被标成新写(不是全 0)');
+  ok(st.diff.ratio > 0 && st.diff.ratio <= 1, `stitch:比例合理 ${st.diff.ratio}`);
+
+  // 17c. 接缝:半个词硬切 + 空白分隔,位置精确、改的词两边都标上
+  const seam = stitchDiffs([
+    { a: 'hello world.\n\n', b: 'hello WORLD.\n\n' },
+    { a: 'abcdef', b: 'abcxef' },
+    { a: 'second para here.', b: 'second para here.' },
+  ]);
+  const fullA = 'hello world.\n\nabcdefsecond para here.';
+  ok(seam.aTok.map((t) => t.t).join('') === fullA, 'stitch:硬切接缝也逐字还原');
+  const markedA = seam.aTok.filter((t) => !t.ws && seam.diff.a[t.ci]).map((t) => t.t);
+  ok(markedA.includes('world') && markedA.includes('abcdef'), `stitch:草稿侧标在改的词上 ${JSON.stringify(markedA)}`);
+
+  // 17d. 单段实在太大:失败标记 + 全 0 + 比例 0(调用方保留 tooBig 提示)
+  const one = stitchDiffs([{ a: bigA, b: bigB }]);
+  ok(one.failed && [...one.diff.a].every((x) => !x) && [...one.diff.b].every((x) => !x) && one.diff.ratio === 0,
+    'stitch:单段超上限 → failed,全 0,比例 0');
+
+  // 17e. 完全没改:比例 0
+  const same = stitchDiffs([{ a: 'same text here.', b: 'same text here.' }]);
+  ok(!same.failed && same.diff.ratio === 0, 'stitch:没改 → 比例 0');
+
+  // 17f. 和真切分器联调:50 段拼出来的流和整篇 tokenize 完全一致,标记也一致
+  {
+    const paras = [];
+    for (let p = 0; p < 30; p++) {
+      const words = [];
+      for (let i = 0; i < 120; i++) words.push('p' + p + 'w' + i);
+      paras.push(words.join(' ') + '.');
+    }
+    const longDraft = paras.join('\n\n');
+    const tcfg = { instr: 'I', sep: 'S', sampling: {}, n_predict: { factor: 2.5, min: 256, max: 2048 }, ctx_size: 8192 };
+    const parts = await planDocument(longDraft, [], tcfg, async (s) => approxTokens(s), null, { target: 200, max: 300 });
+    ok(parts.length > 10 && parts.map((p) => p.before + p.draft + p.after).join('') === longDraft, `stitch:真切出 ${parts.length} 段,拼回一字不差`);
+    const lpairs = parts.map((p) => ({ a: p.before + p.draft + p.after, b: p.before + p.draft.replace(/w10\b/, 'W10') + p.after }));
+    const lout = lpairs.map((p) => p.b).join('');
+    const lst = stitchDiffs(lpairs);
+    const fullA = tokenize(longDraft);
+    ok(!lst.failed && lst.aTok.length === fullA.length && lst.aTok.every((t, i) => t.t === fullA[i].t),
+      'stitch:拼好的流和整篇 tokenize 完全一致');
+    const lcomb = diffTokens(tokenize(longDraft), tokenize(lout));
+    ok(lcomb !== null && JSON.stringify([...lcomb.a]) === JSON.stringify([...lst.diff.a]) &&
+      JSON.stringify([...lcomb.b]) === JSON.stringify([...lst.diff.b]),
+      'stitch:50 段拼出来的标记和整篇算完全一致');
+  }
 }
 
 if (fails) { console.error(`\n${fails} 项失败`); process.exit(1); }

@@ -4,7 +4,7 @@ import { getJSON, postJSON, countTokens, streamCompletion, streamChat } from './
 import { bindExternal, openExternal, refreshExternal } from './external.js';
 import { buildPrompt, selfCheck, nPredictFor } from './prompt.js';
 import { withLangGuard, langDrift } from './guard.js';
-import { tokenize, diffTokens, markBits, factBits, renderRuns, flagNumbers } from './diff.js';
+import { tokenize, diffTokens, stitchDiffs, markBits, factBits, renderRuns, flagNumbers } from './diff.js';
 import { countText, isMostlyCJK, isLongDraft, numberCheck, fmtBytes, fmtDuration, fmtNum, escapeHTML, pyStrip } from './text.js';
 import { loadHistory, addHistory, removeHistory, clearHistory, store } from './history.js';
 import { planDocument, needsSections, approxTokens, documentSignature, newDocumentJob, readDocumentJob, jobMatches, jobDone, combinedDocument, runDocumentSections } from './document.js';
@@ -641,14 +641,22 @@ async function runDocument(draft, resume) {
     S.docJob = null; // 做完了:断点清掉,结果进历史
     store.set('document', 'null');
     S.result = makeResult(draft, text, facts);
+    // Combined-first:能整篇算就整篇算,和以前一字不差;整篇太大算不了
+    // (长文)才按段拼——以前这里直接报"文本太长,没有显示改动"。
+    let pairs = null;
+    if (!S.result.diff) {
+      pairs = job.parts.map((p, i) => ({ a: p.before + p.draft + p.after, b: p.before + job.outputs[i] + p.after }));
+      S.result = makeSectionedResult(draft, text, pairs, facts);
+      if (JSON.stringify(pairs).length > 400000) pairs = null; // 特别大的稿子:历史里不存分段,恢复时按老路算
+    }
     $('out-stats').textContent = t('out.stats', { tok: fmtNum(tok, getLang()), tps: tps ? tps.toFixed(1) : '—', sec: secs.toFixed(1) });
     addHistory({
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       t: Date.now(), draft, facts, out: text, tier: engineId(), tierLabel: engineLabel(), tok, tps: tps || undefined,
-      ratio: S.result.diff ? S.result.diff.ratio : null, stop: 'eos', sections: job.parts.length,
+      ratio: S.result.diff ? S.result.diff.ratio : null, stop: 'eos', sections: job.parts.length, pairs: pairs || undefined,
     });
     renderResult();
-    const tooBig = S.showDiff && !S.result.diff ? ' ' + t('diff.tooBig') : '';
+    const tooBig = S.showDiff && (!S.result.diff || S.result.diffPartial) ? ' ' + t('diff.tooBig') : '';
     showNotice('', t('document.review', { n: fmtNum(job.parts.length, getLang()) }) + tooBig);
   } else {
     showPartialDocument(S.docJob);
@@ -691,6 +699,17 @@ function makeResult(draft, out, facts = []) {
   return { draft, out, aTok, bTok, diff, nums: numberCheck(draft, out), facts: facts.filter((f) => out.includes(f)) };
 }
 
+// 长文后备:整篇算不了时按段拼差异。完成时和历史恢复共用这一个,
+// 两处的高亮永远一致。diffPartial=true 表示有个别段实在太大(只留空标记,
+// tooBig 提示照常显示,但其他段的高亮不受影响)。
+function makeSectionedResult(draft, out, pairs, facts = []) {
+  const st = stitchDiffs(pairs);
+  return {
+    draft, out, aTok: st.aTok, bTok: st.bTok, diff: st.diff, diffPartial: st.failed,
+    nums: numberCheck(draft, out), facts: facts.filter((f) => out.includes(f)),
+  };
+}
+
 function renderResult() {
   const r = S.result;
   if (!r) return;
@@ -703,7 +722,7 @@ function renderResult() {
   factBits(r.out, r.facts, bits, 2);
   renderRuns(out, r.out, bits, ['ins', 'fact']);
   renderDraftMarks();
-  if (S.showDiff && !r.diff) showNotice('', t('diff.tooBig'));
+  if (S.showDiff && (!r.diff || r.diffPartial)) showNotice('', t('diff.tooBig'));
 
   const c = countText(r.out);
   let meta = t('count.zh', { n: fmtNum(c.units, getLang()) });
@@ -820,7 +839,7 @@ function restore(h) {
   onDraftInput();
   $('out-notice').hidden = true;
   $('out-stats').textContent = h.tok ? `${fmtNum(h.tok, getLang())} tokens` + (h.tps ? ` · ${h.tps.toFixed(1)} tok/s` : '') : '';
-  S.result = makeResult(h.draft, h.out, h.facts || []);
+  S.result = h.pairs ? makeSectionedResult(h.draft, h.out, h.pairs, h.facts || []) : makeResult(h.draft, h.out, h.facts || []);
   renderResult();
   openDrawer(false);
   toast(t('history.restored'));

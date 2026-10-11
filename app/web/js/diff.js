@@ -211,3 +211,54 @@ export function flagNumbers(el, nums) {
     if (hit) { frag.append(s.slice(last)); node.replaceWith(frag); }
   }
 }
+
+/**
+ * 分段拼回的差异(长文改写的后备)。
+ * `pairs`:每段 { a: 原文块, b: 改写块 }。块之间的分隔(段前段后空白)在两边是
+ * 同样的纯空白串,所以逐段分别 tokenize 再拼起来,和整篇 tokenize 的字符位置
+ * 完全对得上(只差空白 token 在接缝处是拆成两个还并成一个,长度总和一样,
+ * 内容 token 不受影响)。
+ *
+ * 每段单独走 diffTokens(每段只有几百 token,永远到不了上限),拼好后重排
+ * 内容下标(ci)并把权重口径和 diffTokens 保持一致(ratio = 新写权重/全文权重)。
+ * 返回 { aTok, bTok, diff: { a, b, ratio }, failed }:某段实在太大连分段都
+ * 算不了时,那段标记全 0 且 failed=true(调用方保留 tooBig 提示)。
+ */
+export function stitchDiffs(pairs) {
+  const aTok = [], bTok = [];
+  const am = [], bm = [];
+  let nA = 0, nB = 0, insW = 0, allW = 0, failed = false;
+  const contentCount = (toks) => toks.reduce((k, t) => k + (t.ws ? 0 : 1), 0);
+  for (const p of pairs) {
+    const at = tokenize(p.a), bt = tokenize(p.b);
+    const d = diffTokens(at, bt);
+    if (d) {
+      for (const t of at) if (!t.ws) am.push(d.a[t.ci]);
+      for (const t of bt) {
+        if (t.ws) continue;
+        bm.push(d.b[t.ci]);
+        allW += t.w;
+        if (d.b[t.ci]) insW += t.w;
+      }
+    } else {
+      failed = true;
+      for (const t of at) if (!t.ws) am.push(0);
+      for (const t of bt) {
+        if (t.ws) continue;
+        bm.push(0);
+        allW += t.w;
+      }
+    }
+    // 标记用的是本段下标,先取完再全局重排;流里的空白 token 照原样保留,
+    // 这样拼好的流和整篇 tokenize 的字符位置完全一致。
+    for (const t of at) { if (!t.ws) t.ci += nA; aTok.push(t); }
+    for (const t of bt) { if (!t.ws) t.ci += nB; bTok.push(t); }
+    nA += contentCount(at);
+    nB += contentCount(bt);
+  }
+  return {
+    aTok, bTok,
+    diff: { a: Uint8Array.from(am), b: Uint8Array.from(bm), ratio: allW ? insW / allW : 0 },
+    failed,
+  };
+}
