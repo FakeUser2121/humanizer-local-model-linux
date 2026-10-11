@@ -11,6 +11,8 @@
 >
 > Details + build instructions: [`app/`](app/). *This fork only adds the Linux app — the model, evals and docs below are the untouched upstream work of [sgaofen/humanizer-local-model](https://github.com/sgaofen/humanizer-local-model) (Apache-2.0).*
 >
+> **Long documents now show change highlights at any length — no more "too long to show changes", even on 30+ section rewrites.**
+>
 > ---
 >
 > <p align="center">

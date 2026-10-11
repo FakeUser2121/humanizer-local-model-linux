@@ -18,6 +18,8 @@ to the launcher once, stored as `api-key` (mode `0600`) in the data dir
 (`~/.config/humanizer-llamacpp`), added by the proxy on every request, and
 **never** sent back to the browser.
 
+**Long drafts now show word-level change highlights at any length — new wording highlighted, replaced wording struck through, no more "too long to show changes", even on 30+ section rewrites.**
+
 ## Use it
 
 ```bash
