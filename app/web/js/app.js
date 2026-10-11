@@ -10,13 +10,11 @@ import { loadHistory, addHistory, removeHistory, clearHistory, store } from './h
 import { planDocument, needsSections, approxTokens, documentSignature, newDocumentJob, readDocumentJob, jobMatches, jobDone, combinedDocument, runDocumentSections } from './document.js';
 import { SAMPLES } from './samples.js';
 import { activeFacts, protectFacts, restoreFacts, streamView, withFactGuard, FACT_TRIES } from './facts.js';
-import { pathsHintKey, modelDirDefault, sameDir } from './paths.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const IS_MAC = document.documentElement.classList.contains('mac');
 const KEY_LABEL = IS_MAC ? '⌘ ↵' : 'Ctrl ↵';
-const BACKEND = { metal: 'Metal', cuda: 'CUDA', vulkan: 'Vulkan', cpu: 'CPU', custom: 'custom' };
 
 const S = {
   protect: null, // 本次改写的占位符信息(Create fact),流式显示时用来换回原文
@@ -30,8 +28,6 @@ const S = {
   promptOK: false,
   view: null,
   forceSetup: false,
-  pickTier: null,
-  pickEndpoint: null,
   running: false,
   abort: null,
   out: '',
@@ -41,9 +37,6 @@ const S = {
   fails: 0,
   quit: false,
   autoRun: params.get('run') === '1',
-  tierSig: '',
-  pathsDirty: false, // 存储位置的输入框被改过但还没保存
-  savingPaths: false,
   pollTimer: 0,
 };
 
@@ -100,8 +93,8 @@ async function poll() {
     S.fails = 0;
     $('overlay').hidden = true;
     render();
-    if (['downloading', 'starting', 'paused'].includes(st.phase)) next = 700;
-    else if (st.phase === 'setup' || st.phase === 'error') next = 2500;
+    if (st.phase === 'setup') next = 2500;
+    else if (st.external && st.external.reachable !== true) next = 2000;
     maybeAutoRun();
   } catch {
     S.fails++;
@@ -117,32 +110,29 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) poll
 function render() {
   const st = S.status;
   if (!st) return;
-  const ph = st.phase;
-  let view = 'editor';
-  if (S.forceSetup || ['setup', 'downloading', 'paused', 'error'].includes(ph)) view = 'setup';
-  if (ph === 'starting' && S.view === 'setup' && !S.forceSetup) view = 'setup'; // 首次下载完接着在卡片里显示装载
-  if (ph === 'ready' && S.view === 'setup' && !S.forceSetup) view = 'editor';
+  if (S.cfg && st.ctx_size > 0) S.cfg.ctx_size = st.ctx_size;
+  const view = st.phase === 'setup' ? 'setup' : 'editor';
   if (view !== S.view) {
     S.view = view;
     $('view-setup').hidden = view !== 'setup';
     $('view-editor').hidden = view !== 'editor';
     if (view === 'editor') requestAnimationFrame(() => $('draft').focus({ preventScroll: true }));
+    if (view === 'setup') { renderSetup(); if (!S.autoOpened) { S.autoOpened = true; openExternal(true); } }
   }
   renderStatus();
   renderBrand();
   if (!$('pop').hidden) renderPop();
-  if (view === 'setup') renderSetup();
+  refreshExternal();
   updateGo();
 }
 
-function tierOf(id) {
-  return S.status?.tiers?.find((x) => x.id === id);
-}
-
-// 外部服务模式(external.js / 启动器 external.go):改写走 OpenAI 兼容的 /chat/completions,不数 token
+// The configured model server (launcher: internal/launcher/connection.go).
+// kind "llamacpp": native /completion + /tokenize (exact training prompt, real token counts)
+// kind "openai":   streaming /chat/completions, token counts estimated from the text
 const extOn = () => !!S.status?.external?.enabled;
-const engineLabel = () => (extOn() ? S.status.external.model || t('ext.status') : tierOf(S.status?.tier)?.label);
-const engineId = () => (extOn() ? 'external' : S.status?.tier);
+const chatMode = () => extOn() && S.status.external.kind === 'openai';
+const engineLabel = () => (S.status?.external?.model || S.status?.external?.server_model || (chatMode() ? 'OpenAI API' : 'llama.cpp'));
+const engineId = () => (S.status?.external?.kind || 'llamacpp');
 
 /** 外部服务的错误换成说人话的提示(连不上 / key 不对 / 模型名不对)。 */
 function externalMessage(e) {
@@ -154,325 +144,47 @@ function externalMessage(e) {
 }
 
 function renderBrand() {
-  const tier = tierOf(S.status?.tier);
-  const name = '12B';
-  $('brand-tag').textContent = t('brand.tag', { tier: name });
+  $('brand-tag').textContent = t('brand.tag', { tier: '12B' });
 }
 
 function renderStatus() {
   const st = S.status, el = $('status');
+  const ext = st.external || {};
   let state = 'idle', text = '';
-  const tier = tierOf(st.tier);
-  switch (st.phase) {
-    case 'ready': {
-      state = 'ready';
-      const be = BACKEND[st.engine?.backend] || st.engine?.backend || '';
-      const parts = extOn() ? [t('status.ready'), t('ext.status'), st.external.model] : [t('status.ready'), tier?.label, be];
-      text = S.running ? t('status.writing') : parts.filter(Boolean).join(' · ');
-      break;
-    }
-    case 'starting': state = 'busy'; text = [t('status.loading'), tier?.label].filter(Boolean).join(' · '); break;
-    case 'downloading': {
-      state = 'busy';
-      const d = st.download;
-      text = d?.stage === 'verify' ? t('status.verify') : t('status.download', { p: pct(d?.received, d?.total) });
-      break;
-    }
-    case 'paused': text = t('status.paused'); break;
-    case 'setup': text = t('status.setup'); break;
-    case 'error': state = 'error'; text = t('status.error'); break;
-    default: text = st.phase;
+  if (st.phase !== 'ready') {
+    text = t('status.setup');
+  } else if (ext.reachable === null || ext.reachable === undefined) {
+    state = 'busy'; text = t('status.checking');
+  } else if (!ext.reachable) {
+    if (ext.code === 'loading') { state = 'busy'; text = t('status.serverLoading'); }
+    else if (ext.code === 'auth') { state = 'error'; text = t('status.serverAuth'); }
+    else { state = 'error'; text = t('status.unreachable'); }
+  } else {
+    state = 'ready';
+    text = S.running ? t('status.writing') : [t('status.ready'), engineLabel()].filter(Boolean).join(' · ');
   }
   el.dataset.state = state;
   el.classList.toggle('working', S.running);
   $('status-text').textContent = text;
 }
 
-function pct(a, b) {
-  if (!(b > 0)) return 0;
-  return Math.min(100, Math.floor((a / b) * 100));
-}
-
-// ───────────────────────── 首次运行 / 下载 ─────────────────────────
+// ───────────────────────── First run: connect to a server ─────────────────────────
 function renderSetup() {
-  const st = S.status;
-  const ph = st.phase;
-  const hasModel = st.tiers.some((x) => x.downloaded);
-  // 外部服务模式下从菜单进来只是改存储位置(换档会 409),标题也别写「换档位」
-  const title = extOn() ? t('paths.extTitle') : S.forceSetup && hasModel ? t('setup.titleSwitch') : t('setup.title');
-  $('setup-title').innerHTML = title.replace(/\{([^}]+)\}/g, '<span class="ins">$1</span>');
-
-  let pane = 'choose';
-  if (!S.forceSetup) {
-    if (ph === 'error') pane = 'error';
-    else if (ph === 'downloading' || ph === 'paused' || ph === 'starting') pane = 'progress';
-  } else if (ph === 'downloading') {
-    pane = 'progress';
-  }
-  for (const el of document.querySelectorAll('#setup-card .pane')) el.hidden = el.dataset.pane !== pane;
-  if (pane === 'choose') renderChoose();
-  else if (pane === 'progress') renderProgress();
-  else renderError();
-}
-
-function renderChoose() {
-  const st = S.status;
-  // 以前选的 lite 档已下线:默认选这台机器的推荐档(旧文件不删)
-  if (!S.pickTier || !tierOf(S.pickTier)) S.pickTier = st.notice === 'lite_retired' ? st.recommended : (st.tier || st.recommended);
-  if (!S.pickEndpoint) S.pickEndpoint = st.endpoint;
-  const cpu = st.sys.cpu ? escapeHTML(st.sys.cpu.replace(/\(R\)|\(TM\)|CPU|@.*$/g, '').trim()) : st.sys.os;
-  $('sysline').innerHTML = t('setup.sys', { cpu, ram: Math.round(st.sys.ram_gb) });
-  const noteEl = $('setup-notice');
-  const noFit = st.tiers.length > 0 && st.tiers.every((x) => !x.fits);
-  const msgs = [];
-  if (st.notice === 'lite_retired') msgs.push(t('setup.liteRetired'));
-  if (noFit) msgs.push(t('setup.lowRam', { ram: Math.round(st.sys.ram_gb) }));
-  noteEl.hidden = msgs.length === 0;
-  noteEl.textContent = msgs.join(' ');
-
-  const sig = getLang() + '|' + S.pickTier + '|' + st.recommended + '|' + st.tiers.map((x) => `${x.id}:${x.downloaded}:${x.partial || 0}:${x.fits}`).join(',');
-  if (sig !== S.tierSig) {
-    S.tierSig = sig;
-    const box = $('tiers');
-    box.replaceChildren();
-    for (const tr of st.tiers) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'tier' + (tr.fits ? '' : ' nofit');
-      b.setAttribute('role', 'radio');
-      b.setAttribute('aria-checked', String(tr.id === S.pickTier));
-      const badges = [];
-      if (tr.id === st.recommended) badges.push(`<span class="badge">${t('setup.recommended')}</span>`);
-      if (tr.downloaded) badges.push(`<span class="badge soft">${t('setup.downloaded')}</span>`);
-      else if (tr.partial) badges.push(`<span class="badge soft">${t('setup.partial', { got: fmtBytes(tr.partial) })}</span>`);
-      if (!tr.fits) badges.push(`<span class="badge warn">${t('setup.nofit')}</span>`);
-      const note = tr.note ? escapeHTML(tr.note[getLang()] || tr.note.en || '') : '';
-      b.innerHTML = `<span class="radio"></span>
-        <span><span class="tier-name">${escapeHTML(tr.label)} ${badges.join('')}</span><span class="tier-note">${note}</span></span>
-        <span class="tier-size">${t('setup.approx', { n: tr.approx_gb })}<small>${t('setup.needRam', { n: tr.min_ram_gb })}</small></span>`;
-      b.addEventListener('click', () => { S.pickTier = tr.id; S.tierSig = ''; renderChoose(); });
-      box.append(b);
-    }
-    const sel = $('endpoint');
-    sel.replaceChildren(...st.endpoints.map((e) => new Option(e.label, e.id, false, e.id === S.pickEndpoint)));
-  }
-  const tr = tierOf(S.pickTier);
-  let cta;
-  if (tr.downloaded) cta = t('setup.ctaUse', { tier: tr.label });
-  else if (tr.partial) cta = t('setup.ctaResume', { tier: tr.label });
-  else cta = t('setup.cta', { tier: tr.label, size: tr.approx_gb });
-  $('cta-text').textContent = cta;
-  $('endpoint').closest('.field').hidden = !!tr.downloaded;
-  $('btn-back').hidden = !(S.forceSetup && ['ready', 'starting'].includes(st.phase));
-  // 外部服务开着:这一页只剩存储位置(选档、下载源、下载按钮都用不上,点了也是 409)
-  const ext = extOn();
-  for (const id of ['sysline', 'tiers', 'btn-download', 'setup-fine']) $(id).hidden = ext;
-  if (ext) { noteEl.hidden = true; $('endpoint').closest('.field').hidden = true; }
-  $('ext-paths-note').hidden = !ext;
-  if (ext && !$('paths').open) $('paths').open = true;
-  renderPaths();
-}
-
-// ───────── 存储位置(运行目录 / 模型目录)─────────
-// 启动器把当前生效的两个目录放在 /app/status 里;改完 POST /app/paths。
-// 输入框可以手动改路径(选择器打不开时也能用),所以改过就别被轮询刷掉。
-function renderPaths() {
-  const st = S.status;
-  if (!st) return;
-  const data = $('path-data'), model = $('path-model');
-  const locked = !!st.data_dir_locked;
-  data.readOnly = locked;
-  $('pick-data').disabled = locked || S.savingPaths;
-  $('pick-model').disabled = S.savingPaths;
-  // 说清楚为什么不让点,不然就是一个"按了没反应"的按钮
-  $('pick-data').title = locked ? t('paths.lockedTitle') : t('paths.browse');
-  $('pick-model').title = t('paths.browse');
-  $('paths-save').disabled = S.savingPaths;
-  $('paths-reset').disabled = S.savingPaths;
-  if (!S.pathsDirty) {
-    if (data.value !== (st.data_dir || '')) data.value = st.data_dir || '';
-    if (model.value !== (st.model_dir || '')) model.value = st.model_dir || '';
-  }
-  // 路径太长时输入框里看不全,悬停给全的
-  data.title = data.value;
-  model.title = model.value;
-  $('paths-hint').textContent = t(pathsHintKey(st));
-  // 路径是用户起的文件夹名,可能带 < > &:只当文字放,别当 HTML 解析
-  if (locked) $('paths-note').innerHTML = t('paths.locked');
-  else $('paths-note').textContent = t('paths.note', { data: st.default_data_dir || st.data_dir, model: modelDirDefault(st) });
-}
-
-async function pickDir(what) {
-  const el = $(what === 'data' ? 'path-data' : 'path-model');
-  const btn = $(what === 'data' ? 'pick-data' : 'pick-model');
-  const label = t(what === 'data' ? 'paths.data' : 'paths.model');
-  btn.disabled = true;
-  el.disabled = true;
-  // 系统的选文件夹窗口可能弹在浏览器后面,按钮上写清楚在等什么
-  const span = btn.querySelector('span');
-  btn.dataset.picking = t('paths.picking');
-  if (span) span.dataset.picking = t('paths.picking');
-  try {
-    const r = await postJSON('/app/pick-dir', { what });
-    if (r.path) { el.value = r.path; S.pathsDirty = true; }
-  } catch (e) {
-    toast(e.message, 'err');
-  } finally {
-    el.disabled = false;
-    delete btn.dataset.picking;
-    if (span) delete span.dataset.picking;
-    renderPaths();
-  }
-}
-
-async function savePaths(reset) {
-  if (S.savingPaths) return;
-  S.savingPaths = true;
-  renderPaths();
-  try {
-    // 模型目录没动过、本来就是默认的(运行目录下的 models):发空,让它跟着新的运行目录走
-    let model = $('path-model').value.trim();
-    if (sameDir(model, S.status?.model_dir) && sameDir(model, modelDirDefault(S.status || {}))) model = '';
-    const r = await postJSON('/app/paths', {
-      data_dir: reset ? '' : $('path-data').value.trim(),
-      model_dir: reset ? '' : model,
-      move: !reset && $('path-move').checked,
-      reset,
-    });
-    S.pathsDirty = false;
-    $('path-move').checked = false;
-    toast(r.moved ? t('toast.pathsMoved', { n: r.moved }) : t('toast.pathsSaved'), 'ok');
-  } catch (e) {
-    toast(e.message, 'err');
-  } finally {
-    S.savingPaths = false;
-    poll(); // 成功失败都重新对一次:后端可能已经改了位置(比如只存设置失败)
-    renderPaths();
-  }
-}
-
-function renderProgress() {
-  const st = S.status;
-  const d = st.download;
-  const tier = tierOf(d?.tier || st.tier);
-  const label = tier?.label || '';
-  const sq = $('squiggle');
-  let p = 0, stage, stats = '\u00a0', note = '';
-  if (st.phase === 'starting') {
-    stage = t('prog.starting', { tier: label });
-    const at = st.engine?.attempts?.at(-1);
-    const lk = 'layers.' + (at?.layers ?? '');
-    const lt = t(lk) === lk ? '-ngl ' + at?.layers : t(lk);
-    const be = at ? `${BACKEND[at.backend] || at.backend} · ${lt}` : '…';
-    stats = escapeHTML(be);
-    note = t('prog.noteStarting', { backend: escapeHTML(be) });
-    sq.classList.add('indet');
-    $('prog-pct').hidden = true;
-    $('btn-pause').hidden = true;
-    $('btn-rechoose').hidden = true;
-  } else {
-    sq.classList.remove('indet');
-    $('prog-pct').hidden = false;
-    $('btn-pause').hidden = false;
-    $('btn-rechoose').hidden = false;
-    const total = d?.total > 0 ? d.total : (tier ? tier.approx_gb * 1e9 : 0);
-    if (st.phase === 'paused') {
-      stage = t('prog.paused', { tier: label });
-      p = pct(d?.received, total);
-      stats = t('prog.statsNoSpeed', { got: fmtBytes(d?.received || 0), total: fmtBytes(total) });
-      $('btn-pause').textContent = t('prog.resume');
-      note = t('prog.noteDownload');
-    } else if (d?.stage === 'verify') {
-      stage = t('prog.verify', { tier: label });
-      p = pct(d.verify_done, total);
-      stats = t('prog.statsNoSpeed', { got: fmtBytes(d.verify_done), total: fmtBytes(total) });
-      note = t('prog.noteVerify');
-      $('btn-pause').hidden = true;
-    } else {
-      stage = t(d?.stage === 'probe' ? 'prog.probe' : 'prog.download', { tier: label });
-      p = pct(d?.received, total);
-      stats = d?.speed > 0
-        ? t('prog.stats', { got: fmtBytes(d.received), total: fmtBytes(total), speed: fmtBytes(d.speed), eta: fmtDuration(d.eta, getLang()) })
-        : t('prog.statsNoSpeed', { got: fmtBytes(d?.received || 0), total: fmtBytes(total) });
-      if (d?.attempt > 1) stats += ' ' + t('prog.retrying', { n: d.attempt - 1 });
-      $('btn-pause').textContent = t('prog.pause');
-      note = t('prog.noteDownload');
-    }
-  }
-  $('prog-stage').textContent = stage;
-  $('prog-file').textContent = tier?.file || '';
-  $('prog-pct').innerHTML = `${p}<small>%</small>`;
-  $('prog-stats').innerHTML = stats;
-  $('prog-note').innerHTML = note;
-  drawSquiggle(st.phase === 'starting' ? null : p);
-}
-
-function drawSquiggle(p) {
-  const svg = $('squiggle');
-  const w = Math.max(40, svg.clientWidth || 400), h = 30, mid = h / 2;
-  if (svg.dataset.w !== String(w)) {
-    svg.dataset.w = String(w);
-    // 手写感:主波 + 一点不规则的二次谐波,振幅从左往右略增
-    let d = `M0 ${mid}`;
-    for (let x = 2; x <= w; x += 2) {
-      const amp = 5 + 2.2 * (x / w);
-      const y = mid + amp * Math.sin((x / 23) * Math.PI * 2) + 1.3 * Math.sin((x / 61) * Math.PI * 2 + 1.1);
-      d += ` L${x} ${y.toFixed(2)}`;
-    }
-    const path = $('sq-fill');
-    path.setAttribute('d', d);
-    path.setAttribute('pathLength', '100');
-  }
-  const path = $('sq-fill');
-  if (p === null) {
-    path.style.strokeDasharray = '16 84';
-    path.style.strokeDashoffset = '';
-  } else {
-    path.style.strokeDasharray = '100 100';
-    path.style.strokeDashoffset = String(100 - Math.max(p, 0.6));
-  }
-}
-
-function renderError() {
-  const e = S.status.error || {};
-  let title = e.kind === 'download' ? t('err.download') : t('err.engine');
-  if (e.code === 'disk_full') title = t('err.disk');
-  if (e.code === 'not_found') title = t('err.notfound');
-  // 启动器给的是中文原文;有对应错误码的换成当前语言的说明,原文放进「技术细节」
-  const key = 'errc.' + e.code;
-  const friendly = t(key) !== key ? t(key) : '';
-  const detail = [friendly ? e.message : '', e.detail].filter(Boolean).join('\n\n');
-  $('err-title').textContent = title;
-  $('err-msg').textContent = friendly || e.message || '';
-  $('err-detail').textContent = detail;
-  $('err-detail-wrap').hidden = !detail;
+  $('setup-title').innerHTML = t('setup.title').replace(/\{([^}]+)\}/g, '<span class="ins">$1</span>');
 }
 
 // ───────────────────────── 弹出面板 ─────────────────────────
 function renderPop() {
   const st = S.status;
   if (!st) return;
-  const tier = tierOf(st.tier);
-  const e = st.engine || {};
-  $('pi-model').textContent = tier ? `${tier.label} · ${tier.file}` : '—';
-  const eng = [BACKEND[e.backend] || e.backend, e.offload ? t('menu.layers', { n: e.offload }) : '', e.build].filter(Boolean).join(' · ');
-  $('pi-engine').textContent = eng || (st.backends?.length ? st.backends.map((b) => BACKEND[b] || b).join(' / ') : '—');
-  $('pi-device').textContent = e.device || st.sys.cpu || '—';
-  $('pi-ram').textContent = `${Math.round(st.sys.ram_gb)} GB`;
-  $('pi-ctx').textContent = `${fmtNum(st.ctx_size, getLang())} tokens`;
-  $('pi-paths').textContent = st.model_dir || '—';
+  const ext = st.external || {};
+  $('pi-device').textContent = ext.url || '—';
+  $('pi-model').textContent = ext.model || ext.server_model || '—';
+  $('pi-engine').textContent = ext.enabled ? t(chatMode() ? 'ext.engine' : 'ext.engineLlama') : '—';
+  const n = fmtNum(st.ctx_size, getLang());
+  $('pi-ctx').textContent = chatMode() ? t('ext.ctxGuess', { n }) : t(st.ctx_detected ? 'ext.ctxDetected' : 'ext.ctxAssumed', { n });
+  $('pi-version').textContent = st.version || '—';
   $('pi-idle').textContent = st.idle_exit_minutes > 0 ? t('menu.idle', { n: st.idle_exit_minutes }) : '';
-  $('pa-restart').hidden = !['ready', 'starting', 'error'].includes(st.phase);
-  const ext = extOn();
-  $('pa-external-badge').hidden = !ext;
-  $('pa-tier').hidden = ext;
-  if (ext) {
-    $('pi-model').textContent = st.external.model || '—';
-    $('pi-engine').textContent = t('ext.engine');
-    $('pi-device').textContent = st.external.url;
-    $('pi-ctx').textContent = t('ext.ctxGuess', { n: fmtNum(st.ctx_size, getLang()) });
-    $('pa-restart').hidden = true;
-  }
 }
 
 function togglePop(force) {
@@ -613,9 +325,9 @@ function showReading(note, p) {
 }
 
 // token 数:引擎 /tokenize(不加 BOS)。停止 / 超时照常抛出;其他错误(比如接口不可用)退回按字数估算。
-// 外部服务没有 /tokenize,直接按字数估算(偏保守)。
+// OpenAI-compatible servers have no /tokenize: estimate from the text (conservative).
 async function tokensOf(text, signal) {
-  if (extOn()) return approxTokens(text);
+  if (chatMode()) return approxTokens(text);
   try { return await countTokens(text, { signal }); } catch (e) {
     if (signal?.aborted || e.name === 'AbortError' || e.name === 'TimeoutError') throw e;
     return approxTokens(text);
@@ -639,7 +351,7 @@ async function generate(draft, pd, nPred, signal) {
   };
   // 外部服务:同样的草稿(带占位符)作为唯一一条 user 消息,不带 system;GGUF 自带的模板拼出同一个提示词。
   // 采样参数和自带引擎一样(temperature 1.0、top_p 0.95,其余关掉),和 docs/USAGE.md 第 8 节一致。
-  const ext = extOn() ? S.status.external : null;
+  const ext = chatMode() ? S.status.external : null;
   const chatBody = ext && {
     ...(ext.model ? { model: ext.model } : {}),
     messages: [{ role: 'user', content: pyStrip(pd.text) }],
@@ -802,7 +514,7 @@ async function run() {
 // ───────────────────────── 长文分段改写(document.js)─────────────────────────
 // 断点存在浏览器 localStorage(hz.document),每完成一段存一次;草稿或保留段一改就作废,模型/设置变了不能接着用。
 // 分段改写进行中草稿框只读(停止后恢复),免得改到一半的草稿和断点对不上。
-const engineSignature = () => documentSignature(S.cfg, extOn() ? `ext|${S.status.external.url}|${S.status.external.model || ''}` : S.status?.tier || '');
+const engineSignature = () => documentSignature(S.cfg, `${S.status?.external?.kind}|${S.status?.external?.url}|${S.status?.external?.model || ''}`);
 
 function resumableJob(draft) {
   const job = S.docJob;
@@ -1088,7 +800,7 @@ function renderHistory() {
   ol.replaceChildren(...list.map((h) => {
     const li = document.createElement('li');
     const when = new Date(h.t).toLocaleString(getLang() === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    const tier = h.tierLabel || tierOf(h.tier)?.label || h.tier || '';
+    const tier = h.tierLabel || h.tier || '';
     const words = countText(h.out).units;
     const ratio = typeof h.ratio === 'number' ? ` · ${Math.round(h.ratio * 100)}%` : '';
     li.innerHTML = `<div class="hist-meta"><span>${escapeHTML(when)}</span><span>·</span><span>${escapeHTML(tier)}</span><span>·</span><span>${t('count.zh', { n: words }).replace(/<\/?b>/g, '')}${ratio}</span></div>
@@ -1150,17 +862,6 @@ function effectiveTheme() {
   const a = document.documentElement.getAttribute('data-theme');
   if (a) return a;
   return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-async function setup(tier, endpoint) {
-  try {
-    await postJSON('/app/setup', { tier, endpoint }, { timeout: SLOW_POST_MS });
-    S.forceSetup = false;
-    S.tierSig = '';
-  } catch (e) {
-    toast(e.message);
-  }
-  poll();
 }
 
 // ───────────────────────── 导入 .docx / .pdf ─────────────────────────
@@ -1392,33 +1093,6 @@ function bind() {
     }
   });
 
-  // 首次运行
-  $('btn-download').addEventListener('click', () => setup(S.pickTier, $('endpoint').value));
-  $('endpoint').addEventListener('change', (e) => { S.pickEndpoint = e.target.value; });
-  $('pick-data').addEventListener('click', () => pickDir('data'));
-  $('pick-model').addEventListener('click', () => pickDir('models'));
-  for (const id of ['path-data', 'path-model']) {
-    $(id).addEventListener('input', () => { S.pathsDirty = true; });
-  }
-  $('path-data').addEventListener('keydown', (e) => { if (e.key === 'Enter') savePaths(false); });
-  $('path-model').addEventListener('keydown', (e) => { if (e.key === 'Enter') savePaths(false); });
-  $('paths-save').addEventListener('click', () => savePaths(false));
-  $('paths-reset').addEventListener('click', () => savePaths(true));
-  $('btn-back').addEventListener('click', () => { S.forceSetup = false; S.tierSig = ''; render(); });
-  $('btn-pause').addEventListener('click', async () => {
-    const st = S.status;
-    if (st.phase === 'paused') await setup(st.download?.tier || st.tier, st.endpoint);
-    else { await postJSON('/app/download/pause').catch(() => {}); poll(); }
-  });
-  $('btn-rechoose').addEventListener('click', () => { S.forceSetup = true; S.tierSig = ''; render(); });
-  $('btn-err-choose').addEventListener('click', () => { S.forceSetup = true; S.tierSig = ''; render(); });
-  $('btn-retry').addEventListener('click', async () => {
-    const st = S.status;
-    if (st.error?.kind === 'engine') { await postJSON('/app/engine/restart', {}, { timeout: SLOW_POST_MS }).catch((e) => toast(e.message)); poll(); }
-    else await setup(st.download?.tier || st.tier, st.endpoint);
-  });
-  $('btn-err-logs').addEventListener('click', () => postJSON('/app/reveal', { what: 'logs' }).then(() => toast(t('toast.revealed'))).catch((e) => toast(e.message)));
-
   // 顶栏
   $('status').addEventListener('click', (e) => { e.stopPropagation(); togglePop(); });
   $('btn-menu').addEventListener('click', (e) => { e.stopPropagation(); togglePop(); });
@@ -1442,7 +1116,7 @@ function bind() {
       markLang();
       renderSamples();
       onDraftInput(false);
-      S.tierSig = '';
+      renderSetup();
       render();
       if (S.result) renderResult();
       if ($('drawer').classList.contains('open')) renderHistory();
@@ -1453,21 +1127,8 @@ function bind() {
   bindExternal({
     isRunning: () => S.running,
     toast,
-    onChange: () => { S.forceSetup = false; S.tierSig = ''; poll(); },
+    onChange: () => { poll(); },
   });
-  $('pa-tier').addEventListener('click', () => { togglePop(false); S.forceSetup = true; S.pickTier = S.status?.tier; S.tierSig = ''; render(); });
-  $('pa-paths').addEventListener('click', () => {
-    togglePop(false);
-    S.forceSetup = true;
-    S.tierSig = '';
-    S.pathsDirty = false;
-    render();
-    $('paths').open = true;
-    $('path-data').focus({ preventScroll: false });
-    $('paths').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  });
-  $('pa-reveal').addEventListener('click', () => postJSON('/app/reveal', { what: 'models' }).then(() => toast(t('toast.revealed'))).catch((e) => toast(e.message)));
-  $('pa-restart').addEventListener('click', async () => { togglePop(false); toast(t('toast.restarting')); await postJSON('/app/engine/restart', {}, { timeout: SLOW_POST_MS }).catch((e) => toast(e.message)); poll(); });
   $('pa-quit').addEventListener('click', async () => {
     if (!confirm(t('confirm.quit'))) return;
     S.quit = true;
@@ -1485,14 +1146,6 @@ function bind() {
       openDrawer(false);
     }
   });
-  new ResizeObserver(() => { if (S.view === 'setup' && S.status) renderProgressIfVisible(); }).observe($('squiggle'));
-}
-
-function renderProgressIfVisible() {
-  if (!document.querySelector('[data-pane="progress"]').hidden) {
-    $('squiggle').dataset.w = '';
-    renderProgress();
-  }
 }
 
 init();

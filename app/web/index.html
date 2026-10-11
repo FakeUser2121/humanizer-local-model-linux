@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,10 +9,9 @@
 <link rel="preload" href="fonts/InstrumentSans-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/BricolageGrotesque-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="css/app.css">
-<link rel="stylesheet" href="css/update.css">
+<link rel="stylesheet" href="css/dialog.css">
 <script src="js/boot.js"></script>
 <script type="module" src="js/app.js"></script>
-<script type="module" src="js/update.js"></script>
 </head>
 <body>
 
@@ -53,9 +52,6 @@
     <span class="brand-tag" id="brand-tag"></span>
   </a>
   <div class="bar-right">
-    <button class="upd-chip" id="upd-chip" type="button" aria-haspopup="dialog" hidden>
-      <span class="upd-chip-dot" aria-hidden="true"></span><span class="upd-chip-text" id="upd-chip-text"></span>
-    </button>
     <button class="status" id="status" type="button" aria-haspopup="dialog" aria-expanded="false">
       <span class="dot" aria-hidden="true"></span><span id="status-text">…</span>
     </button>
@@ -69,115 +65,45 @@
 </header>
 
 <!-- 模型面板(点状态灯或 … 打开) -->
+<!-- Connection panel (click the status light or the … button) -->
 <div class="pop" id="pop" role="dialog" aria-modal="false" hidden>
   <dl class="pop-grid">
-    <dt data-i18n="menu.model">模型</dt><dd id="pi-model">—</dd>
-    <dt data-i18n="menu.engine">引擎</dt><dd id="pi-engine">—</dd>
-    <dt data-i18n="menu.device">设备</dt><dd id="pi-device">—</dd>
-    <dt data-i18n="menu.memory">内存</dt><dd id="pi-ram">—</dd>
-    <dt data-i18n="menu.context">上下文</dt><dd id="pi-ctx">—</dd>
-    <dt data-i18n="menu.paths">存储位置</dt><dd id="pi-paths">—</dd>
-    <dt data-i18n="upd.versionLabel">版本</dt><dd id="pi-version">—</dd>
+    <dt data-i18n="menu.server">Server</dt><dd id="pi-device">—</dd>
+    <dt data-i18n="menu.model">Model</dt><dd id="pi-model">—</dd>
+    <dt data-i18n="menu.engine">API</dt><dd id="pi-engine">—</dd>
+    <dt data-i18n="menu.context">Context</dt><dd id="pi-ctx">—</dd>
+    <dt data-i18n="upd.versionLabel">Version</dt><dd id="pi-version">—</dd>
   </dl>
   <div class="pop-actions">
-    <button class="row-btn" id="pa-tier" type="button"><svg><use href="#i-layers"/></svg><span data-i18n="menu.changeTier">更换模型档位</span></button>
-    <button class="row-btn" id="pa-paths" type="button"><svg><use href="#i-folder"/></svg><span data-i18n="menu.changePaths">更改存储位置</span></button>
-    <button class="row-btn" id="pa-reveal" type="button"><svg><use href="#i-folder"/></svg><span data-i18n="menu.reveal">打开模型文件夹</span></button>
-    <button class="row-btn" id="pa-restart" type="button"><svg><use href="#i-redo"/></svg><span data-i18n="menu.restart">重启引擎</span></button>
-    <button class="row-btn" id="pa-external" type="button"><svg><use href="#i-plug"/></svg><span data-i18n="ext.menu">外部模型服务</span><span class="row-badge ext-badge" id="pa-external-badge" data-i18n="ext.on" hidden>已开启</span></button>
-    <button class="row-btn" id="pa-update" type="button"><svg><use href="#i-update"/></svg><span data-i18n="upd.menu">检查更新</span><span class="row-badge" id="pa-update-badge" hidden></span></button>
-    <button class="row-btn danger" id="pa-quit" type="button"><svg><use href="#i-power"/></svg><span data-i18n="menu.quit">退出 Humanizer</span></button>
+    <button class="row-btn" id="pa-external" type="button"><svg><use href="#i-plug"/></svg><span data-i18n="ext.menu">Model server…</span></button>
+    <button class="row-btn danger" id="pa-quit" type="button"><svg><use href="#i-power"/></svg><span data-i18n="menu.quit">Quit Humanizer</span></button>
   </div>
   <p class="pop-foot" id="pi-idle"></p>
 </div>
 
+
 <main id="main">
 
   <!-- ───────── 首次运行 / 下载 / 出错 ───────── -->
+  <!-- ───────── First run: connect to a model server ───────── -->
   <section class="setup" id="view-setup" hidden>
     <div class="setup-copy">
-      <p class="eyebrow" data-i18n="setup.eyebrow">首次使用</p>
+      <p class="eyebrow" data-i18n="setup.eyebrow">First run</p>
       <h1 class="display" id="setup-title"></h1>
-      <p class="lede" data-i18n="setup.lede">一次下载，之后完全离线运行。你的文字只在这台电脑上处理，不经过任何服务器。</p>
+      <p class="lede" data-i18n="setup.lede">This app does not download or run a model. It sends your text to a llama.cpp server that you run yourself.</p>
       <ul class="facts">
-        <li><b>12B</b><span data-i18n="setup.fact1">参数的改写模型</span></li>
-        <li><b>中 / EN</b><span data-i18n="setup.fact2">中文英文都能改</span></li>
-        <li><b data-i18n="setup.fact3b">离线</b><span data-i18n="setup.fact3">装好后不用联网</span></li>
+        <li><b>llama.cpp</b><span data-i18n="setup.fact1">llama-server, any machine</span></li>
+        <li><b>/completion</b><span data-i18n="setup.fact2">exact training prompt</span></li>
+        <li><b data-i18n="setup.fact3b">Private</b><span data-i18n="setup.fact3">your text only goes to your server</span></li>
       </ul>
     </div>
 
     <div class="card" id="setup-card">
-      <!-- 选档 -->
       <div class="pane" data-pane="choose">
-        <p class="sysline" id="sysline"></p>
-        <p class="setup-notice ext-paths-note" id="ext-paths-note" data-i18n="paths.extNote" hidden>正在用外部模型服务：这里只改存储位置，自带引擎不会启动。要换回自带模型，先在右上角「…」→ 外部模型服务里关掉。</p>
-        <p class="setup-notice" id="setup-notice" hidden></p>
-        <div class="tiers" id="tiers" role="radiogroup"></div>
-        <label class="field">
-          <span data-i18n="setup.source">下载源</span>
-          <select id="endpoint"></select>
-        </label>
-
-        <!-- 存储位置:默认在系统盘,可以改到别的盘(数据目录、模型目录各一个) -->
-        <details class="paths" id="paths">
-          <summary>
-            <span data-i18n="paths.title">存储位置</span>
-            <span class="paths-hint" id="paths-hint"></span>
-          </summary>
-          <div class="path-row">
-            <label class="path-label" for="path-data" data-i18n="paths.data">运行目录</label>
-            <input class="path-input" id="path-data" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off">
-            <button class="btn ghost path-btn" id="pick-data" type="button"><svg aria-hidden="true"><use href="#i-folder"/></svg><span data-i18n="paths.browse">更改…</span></button>
-          </div>
-          <div class="path-row">
-            <label class="path-label" for="path-model" data-i18n="paths.model">模型目录</label>
-            <input class="path-input" id="path-model" type="text" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off">
-            <button class="btn ghost path-btn" id="pick-model" type="button"><svg aria-hidden="true"><use href="#i-folder"/></svg><span data-i18n="paths.browse">更改…</span></button>
-          </div>
-          <p class="fine" id="paths-note"></p>
-          <div class="paths-actions">
-            <label class="movebox"><input type="checkbox" id="path-move"><span data-i18n="paths.move">把已下载的模型一起搬过去</span></label>
-            <button class="btn ghost" id="paths-reset" type="button" data-i18n="paths.reset">恢复默认</button>
-            <button class="btn primary" id="paths-save" type="button" data-i18n="paths.save">保存位置</button>
-          </div>
-        </details>
-
-        <button class="cta" id="btn-download" type="button"><span id="cta-text"></span><svg><use href="#i-arrow"/></svg></button>
-        <button class="btn ghost back" id="btn-back" type="button" hidden data-i18n="setup.back">返回</button>
-        <p class="fine" id="setup-fine" data-i18n="setup.fine">模型存在本机的应用数据目录里，可以随时删掉。断网、关页面都能续传。</p>
-        <button class="btn ghost ext-link" id="btn-setup-external" type="button"><svg aria-hidden="true"><use href="#i-plug"/></svg><span data-i18n="ext.setupLink">已经在用 LM Studio 等本地模型服务？接入外部服务</span></button>
-      </div>
-
-      <!-- 下载 / 校验 / 装载 -->
-      <div class="pane" data-pane="progress" hidden>
-        <div class="prog-head">
-          <span class="eyebrow" id="prog-stage"></span>
-          <span class="mono dim" id="prog-file"></span>
-        </div>
-        <div class="prog-pct" id="prog-pct">0<small>%</small></div>
-        <svg class="squiggle" id="squiggle" preserveAspectRatio="none" aria-hidden="true">
-          <line class="sq-track" x1="0" x2="100%" y1="50%" y2="50%"/>
-          <path class="sq-fill" id="sq-fill"/>
-        </svg>
-        <p class="prog-stats mono" id="prog-stats">&nbsp;</p>
-        <div class="prog-actions">
-          <button class="btn" id="btn-pause" type="button"></button>
-          <button class="btn ghost" id="btn-rechoose" type="button" data-i18n="setup.rechoose">换一档</button>
-        </div>
-        <p class="fine" id="prog-note"></p>
-      </div>
-
-      <!-- 出错 -->
-      <div class="pane" data-pane="error" hidden>
-        <p class="eyebrow err" data-i18n="err.eyebrow">出了点问题</p>
-        <h2 class="err-title" id="err-title"></h2>
-        <p class="err-msg" id="err-msg"></p>
-        <details class="err-detail" id="err-detail-wrap"><summary data-i18n="err.detail">技术细节</summary><pre id="err-detail"></pre></details>
-        <div class="prog-actions">
-          <button class="btn primary" id="btn-retry" type="button" data-i18n="err.retry">重试</button>
-          <button class="btn ghost" id="btn-err-choose" type="button" data-i18n="setup.rechoose">换一档</button>
-          <button class="btn ghost" id="btn-err-logs" type="button" data-i18n="err.logs">打开日志文件夹</button>
-        </div>
+        <p class="sysline" data-i18n="setup.how">Start your server first, for example:</p>
+        <pre class="setup-cmd">llama-server -m humanizer-12b-Q8_0.gguf -c 8192 -np 1 -ngl 99 --port 8080</pre>
+        <button class="cta" id="btn-setup-external" type="button"><span data-i18n="setup.connect">Connect to your server</span><svg><use href="#i-arrow"/></svg></button>
+        <p class="fine" data-i18n="setup.fine">Settings and the API key (if any) are stored on this computer only.</p>
       </div>
     </div>
   </section>
@@ -289,72 +215,40 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <!-- 检查更新(js/update.js 渲染) -->
-<div class="upd-scrim" id="upd-scrim" hidden></div>
-<section class="upd" id="upd" role="dialog" aria-modal="true" aria-labelledby="upd-title" hidden>
-  <header class="upd-head">
-    <div class="upd-head-text">
-      <p class="eyebrow"><span data-i18n="upd.eyebrow">更新</span><span class="upd-last" id="upd-last"></span></p>
-      <h2 class="upd-title" id="upd-title" data-i18n="upd.title">App 与模型</h2>
-    </div>
-    <button class="icon-btn" id="upd-close" type="button" data-i18n-attr="aria-label:common.close;title:common.close"><svg><use href="#i-close"/></svg></button>
-  </header>
-  <div class="upd-body" id="upd-body">
-    <div class="upd-notice" id="upd-notice" role="status" hidden></div>
-    <section class="upd-sec" id="upd-app"></section>
-    <section class="upd-sec" id="upd-models"></section>
-  </div>
-  <footer class="upd-foot">
-    <label class="switch">
-      <input type="checkbox" id="upd-auto">
-      <span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span>
-      <span class="switch-label"><span data-i18n="upd.auto">每天自动检查一次</span><small data-i18n="upd.autoHint">只访问 GitHub 和 Hugging Face 的公开接口，不发送任何个人信息。</small></span>
-    </label>
-    <button class="btn" id="upd-check" type="button"><svg aria-hidden="true"><use href="#i-redo"/></svg><span id="upd-check-text" data-i18n="upd.checkNow">立即检查</span></button>
-  </footer>
-</section>
-
-<!-- 外部模型服务(js/external.js) -->
+<!-- Model server dialog (js/external.js) -->
 <div class="upd-scrim" id="ext-scrim" hidden></div>
 <section class="upd ext" id="ext" role="dialog" aria-modal="true" aria-labelledby="ext-title" hidden>
   <header class="upd-head">
     <div class="upd-head-text">
-      <p class="eyebrow" data-i18n="ext.eyebrow">高级设置</p>
-      <h2 class="upd-title" id="ext-title" data-i18n="ext.title">外部模型服务</h2>
+      <p class="eyebrow" data-i18n="ext.eyebrow">Connection</p>
+      <h2 class="upd-title" id="ext-title" data-i18n="ext.title">Model server</h2>
     </div>
     <button class="icon-btn" id="ext-close" type="button" data-i18n-attr="aria-label:common.close;title:common.close"><svg><use href="#i-close"/></svg></button>
   </header>
   <div class="upd-body">
-    <p class="ext-lede" data-i18n="ext.lede">已经在 LM Studio、llama-server、Ollama 等工具里跑着 humanizer 模型？填它的 OpenAI 兼容地址，App 就不再启动自带的引擎，改写直接交给它。</p>
-    <label class="switch ext-switch">
-      <input type="checkbox" id="ext-enabled">
-      <span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span>
-      <span class="switch-label"><span data-i18n="ext.enable">使用外部服务</span><small data-i18n="ext.enableHint">关掉就恢复自带引擎，已下载的模型不受影响。</small></span>
-    </label>
-    <label class="ext-field"><span data-i18n="ext.url">服务地址</span>
-      <input id="ext-url" type="text" inputmode="url" placeholder="http://localhost:1234/v1" spellcheck="false" autocomplete="off" autocapitalize="off"></label>
-    <label class="ext-field"><span data-i18n="ext.model">模型名（可选）</span>
+    <p class="ext-lede" data-i18n="ext.lede">Point Humanizer at the llama.cpp server that runs your humanizer GGUF.</p>
+    <label class="ext-field"><span data-i18n="ext.kind">Server type</span>
+      <select id="ext-kind">
+        <option value="llamacpp" data-i18n="ext.kindLlama">llama.cpp llama-server (recommended)</option>
+        <option value="openai" data-i18n="ext.kindOpenAI">OpenAI-compatible (LM Studio, Ollama, vLLM…)</option>
+      </select></label>
+    <label class="ext-field"><span data-i18n="ext.url">Server address</span>
+      <input id="ext-url" type="text" inputmode="url" placeholder="http://127.0.0.1:8080" spellcheck="false" autocomplete="off" autocapitalize="off"></label>
+    <label class="ext-field" id="ext-model-field"><span data-i18n="ext.model">Model name (optional)</span>
       <input id="ext-model" type="text" list="ext-models" spellcheck="false" autocomplete="off" autocapitalize="off" data-i18n-attr="placeholder:ext.modelPh"><datalist id="ext-models"></datalist></label>
-    <label class="ext-field"><span data-i18n="ext.key">API key（可选）</span>
+    <label class="ext-field"><span data-i18n="ext.key">API key (optional)</span>
       <span class="ext-key-row"><input id="ext-key" type="password" spellcheck="false" autocomplete="off" data-i18n-attr="placeholder:ext.keyPh">
-      <button class="btn ghost" id="ext-key-clear" type="button" hidden data-i18n="ext.keyClear">清除</button></span></label>
+      <button class="btn ghost" id="ext-key-clear" type="button" hidden data-i18n="ext.keyClear">Clear</button></span></label>
     <div class="ext-result" id="ext-result" role="status" hidden></div>
-    <p class="fine" data-i18n="ext.note">请求格式：流式 /chat/completions，草稿是唯一一条 user 消息，不带 system，temperature 1.0、top_p 0.95，和使用文档第 8 节一致。服务端要加载 humanizer 的 GGUF（2026-10-04 之后下载的文件自带模板），上下文建议 8192。服务没有数 token 的接口，长度按字数估算。草稿会发到这个地址：填本机地址才是完全离线。API key 只存在本机的数据目录里。</p>
+    <p class="fine" id="ext-note"></p>
   </div>
   <footer class="upd-foot">
-    <button class="btn" id="ext-test" type="button"><svg aria-hidden="true"><use href="#i-redo"/></svg><span data-i18n="ext.test">测试连接</span></button>
+    <button class="btn" id="ext-test" type="button"><svg aria-hidden="true"><use href="#i-redo"/></svg><span data-i18n="ext.test">Test connection</span></button>
+    <button class="btn ghost" id="ext-disconnect" type="button" hidden data-i18n="ext.disconnect">Disconnect</button>
     <span class="grow"></span>
-    <button class="btn primary" id="ext-save" type="button" data-i18n="ext.save">保存</button>
+    <button class="btn primary" id="ext-save" type="button" data-i18n="ext.save">Save</button>
   </footer>
 </section>
-
-<div class="upd-overlay" id="upd-overlay" hidden>
-  <div class="overlay-card">
-    <svg class="empty-mark" aria-hidden="true"><use href="#i-mark"/></svg>
-    <h2 id="upd-ov-title"></h2>
-    <p id="upd-ov-msg"></p>
-    <div class="upd-ov-bar" id="upd-ov-bar" aria-hidden="true"><i></i></div>
-  </div>
-</div>
 
 <div class="overlay" id="overlay" hidden>
   <div class="overlay-card">

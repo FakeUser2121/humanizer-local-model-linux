@@ -1,0 +1,115 @@
+/* Connection dialog (reuses the original dialog chrome). */
+
+/* ───────── 面板 ───────── */
+.upd-scrim { position: fixed; inset: 0; z-index: 55; background: var(--scrim); animation: fade .2s; }
+/* 在顶栏下面的区域里居中(不盖住顶栏):top/bottom 定区域,高度随内容,margin:auto 居中 */
+.upd {
+  position: fixed; z-index: 56; inset: 72px 16px 20px; margin: auto; height: fit-content;
+  width: min(620px, calc(100vw - 32px)); max-height: min(860px, calc(100vh - 92px));
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--sheet); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow-pop);
+  animation: upd-in .22s var(--ease);
+}
+@keyframes upd-in { from { opacity: 0; transform: translateY(10px); } }
+
+.upd-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 14px 2px 28px; }
+.upd-head .eyebrow { margin: 0 0 8px; }
+.upd-head .upd-last { color: var(--ink-4); }
+.upd-title {
+  margin: 0; font-family: var(--f-display); font-weight: 700; font-size: 30px; letter-spacing: -.035em; line-height: 1.05;
+  font-variation-settings: "opsz" 72;
+}
+:root[data-lang="zh"] .upd-title { letter-spacing: -.01em; font-weight: 800; }
+.upd-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 28px 6px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+/* 滚动提示:往下滚过后标题下出现一道淡影;下面还有内容时底栏上方出现一道淡影(update.js 设 data-up / data-more) */
+.upd-head, .upd-foot { position: relative; z-index: 1; transition: box-shadow .2s; }
+.upd[data-up] .upd-head { box-shadow: 0 12px 14px -14px color-mix(in srgb, var(--ink) 45%, transparent); }
+.upd[data-more] .upd-foot { box-shadow: 0 -12px 14px -14px color-mix(in srgb, var(--ink) 45%, transparent); }
+
+.upd-notice {
+  margin: 0 0 16px; padding: 11px 14px; border-radius: 12px; font-size: 13px; line-height: 1.55; color: var(--ink);
+  background: var(--sunk); border: 1px solid var(--line-2);
+}
+.upd-notice + .upd-notice { margin-top: -8px; }
+.upd-notice.ok { border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 8%, var(--sheet)); }
+.upd-notice.warn { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 9%, var(--sheet)); }
+.upd-notice.err { border-color: color-mix(in srgb, var(--err) 45%, transparent); background: color-mix(in srgb, var(--err) 8%, var(--sheet)); }
+.upd-detail { margin-top: 6px; }
+.upd-detail summary { cursor: pointer; font-size: 12px; color: var(--ink-3); }
+.upd-detail pre {
+  margin: 6px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--sheet); white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 11px/1.5 var(--f-mono); color: var(--ink-2);
+}
+
+/* 底栏:自动检查开关 + 立即检查 */
+.upd-foot {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 12px 16px; padding: 14px 16px 14px 28px;
+  border-top: 1px solid var(--line-2); background: var(--sheet-2);
+}
+
+/* ───────── 外部模型服务(js/external.js,借用更新面板的外框)───────── */
+.ext { width: min(560px, calc(100vw - 32px)); }
+.ext-lede { margin: 0 0 18px; font-size: 13.5px; line-height: 1.6; color: var(--ink-2); }
+.ext-switch { margin-bottom: 18px; }
+.ext-field { display: grid; gap: 6px; margin-bottom: 14px; font-size: 12.5px; color: var(--ink-3); }
+.ext-field input {
+  width: 100%; height: 38px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--sheet);
+  font-family: var(--f-mono); font-size: 12.5px; color: var(--ink); min-width: 0;
+}
+.ext-field input:focus { outline: none; border-color: var(--ink-3); box-shadow: 0 0 0 3px var(--hl-ring); }
+.ext-field input:disabled { opacity: .55; }
+.ext-key-row { display: flex; gap: 6px; }
+.ext-key-row .btn { flex: none; height: 38px; }
+.ext-result {
+  margin: 4px 0 6px; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere;
+  background: var(--sunk); color: var(--ink-2); border: 1px solid var(--line-2);
+}
+.ext-result.ok { border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 8%, var(--sheet)); color: var(--ink); }
+.ext-result.err { border-color: color-mix(in srgb, var(--err) 45%, transparent); background: color-mix(in srgb, var(--err) 8%, var(--sheet)); color: var(--ink); }
+#ext-test { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+#ext-test svg { width: 16px; height: 16px; }
+#ext-test.spinning svg { animation: spin .9s linear infinite; }
+.ext .upd-foot .grow { flex: 1; }
+.ext-badge { background: var(--sunk); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line); }
+.ext-link { display: inline-flex; align-items: center; gap: 8px; width: 100%; justify-content: center; margin-top: 10px; font-size: 12.5px; height: auto; min-height: 36px; padding: 6px 12px; white-space: normal; }
+.ext-link svg { width: 16px; height: 16px; flex: none; }
+@media (max-width: 560px) {
+  .ext { width: 100%; }
+  .ext .upd-foot .btn { flex: 1 1 auto; justify-content: center; }
+}
+
+@media (max-width: 560px) {
+  .upd {
+    inset: auto 0 0 0; margin: 0; height: auto; width: 100%; max-height: 92vh; max-height: 92dvh;
+    border-radius: 22px 22px 0 0; border-bottom: 0; animation: upd-up .25s var(--ease);
+  }
+  @keyframes upd-up { from { opacity: 0; transform: translateY(24px); } }
+  .upd-head { padding: 18px 10px 2px 16px; }
+  .upd-title { font-size: 25px; }
+  .upd-body { padding: 12px 16px 4px; }
+  .upd-foot { padding: 12px 16px calc(14px + env(safe-area-inset-bottom)); }
+}
+@media (max-width: 430px) {
+  .bar { padding: 0 10px; }
+  .brand { gap: 7px; }
+  .brand-mark { width: 30px; }
+  .brand-word { font-size: 18px; }
+  .bar-right { gap: 2px; }
+  .bar-right .icon-btn { width: 32px; }
+  .status { margin-right: 2px; }
+  .seg { margin: 0 2px; }
+  .seg button { min-width: 30px; padding: 0 6px; }
+}
+
+/* select in the dialog */
+.ext-field select {
+  width: 100%; height: 38px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--sheet);
+  font-size: 13px; color: var(--ink); min-width: 0;
+}
+.ext-field select:focus { outline: none; border-color: var(--ink-3); box-shadow: 0 0 0 3px var(--hl-ring); }
+
+/* first-run card: the example command */
+.setup-cmd {
+  margin: 4px 0 18px; padding: 12px 14px; border-radius: 12px; background: var(--sunk); border: 1px solid var(--line-2);
+  font: 12px/1.55 var(--f-mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; user-select: all;
+}

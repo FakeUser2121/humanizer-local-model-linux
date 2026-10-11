@@ -1,9 +1,23 @@
 <img src="assets/banner-en.png" alt="humanizer: rewrites AI drafts so they read like a person wrote them" width="100%">
 
-<p align="center">
+> **🐧 Linux user? Grab the Linux AppImage → [Releases](https://github.com/FakeUser2121/humanizer-local-model-linux/releases/latest)** — it opens the same editor **in your browser** and rewrites through **your own llama-server**, no model download:
+>
+> ```bash
+> # 1. start your model server (any machine, e.g. your GPU box)
+> llama-server -m humanizer-12b-Q8_0.gguf -c 8192 -np 1 -ngl 99 --port 8080
+> # 2. run the app, then enter your server URL (e.g. http://127.0.0.1:8080) when asked
+> chmod +x Humanizer-*.AppImage && ./Humanizer-*.AppImage
+> ```
+>
+> Details + build instructions: [`app/`](app/). *This fork only adds the Linux app — the model, evals and docs below are the untouched upstream work of [sgaofen/humanizer-local-model](https://github.com/sgaofen/humanizer-local-model) (Apache-2.0).*
+>
+> ---
+>
+> <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-CDF54B?style=flat-square&labelColor=101216"></a>
   <a href="https://huggingface.co/jialinyyzz/humanizer"><img alt="Model on Hugging Face" src="https://img.shields.io/badge/model-jialinyyzz%2Fhumanizer-CDF54B?style=flat-square&labelColor=101216&logo=huggingface&logoColor=white"></a>
   <a href="https://github.com/sgaofen/humanizer-local-model/releases/latest"><img alt="App for macOS and Windows" src="https://img.shields.io/badge/app-macOS%20%7C%20Windows-CDF54B?style=flat-square&labelColor=101216"></a>
+  <a href="https://github.com/FakeUser2121/humanizer-local-model-linux/releases/latest"><img alt="App for Linux (AppImage, bring-your-own-server)" src="https://img.shields.io/badge/app-Linux%20AppImage-CDF54B?style=flat-square&labelColor=101216"></a>
   <img alt="Fine-tuned from google/gemma-4-12B" src="https://img.shields.io/badge/fine--tuned_from-google%2Fgemma--4--12B-ECEEF1?style=flat-square&labelColor=101216">
   <img alt="Languages: English and Chinese" src="https://img.shields.io/badge/languages-English%20%7C%20%E4%B8%AD%E6%96%87-ECEEF1?style=flat-square&labelColor=101216">
 </p>
@@ -14,7 +28,7 @@
 
 **humanizer** is a 12B model that rewrites AI-written drafts (emails, essays, reports, forum posts; English and Chinese) so they read like a person wrote them. It is trained to keep every number, unit, date, name and quote and to add nothing, and it runs on your own computer.
 
-**Quick start:** get the app for **[Mac (Apple silicon)](https://github.com/sgaofen/humanizer-local-model/releases/download/app-v0.3.4/Humanizer-0.3.4-macos-arm64.dmg)** or **[Windows](https://github.com/sgaofen/humanizer-local-model/releases/download/app-v0.3.4/Humanizer-0.3.4-windows-x64-setup.exe)**, open it and paste a draft; it works offline. Without the app: [one llama.cpp command](#option-2-one-command-llamacpp), or [AGENTS.md](AGENTS.md) for coding agents.
+**Quick start:** get the app for **[Mac (Apple silicon)](https://github.com/sgaofen/humanizer-local-model/releases/download/app-v0.3.4/Humanizer-0.3.4-macos-arm64.dmg)**, **[Windows](https://github.com/sgaofen/humanizer-local-model/releases/download/app-v0.3.4/Humanizer-0.3.4-windows-x64-setup.exe)** or **[Linux (AppImage, uses your own llama-server)](https://github.com/FakeUser2121/humanizer-local-model-linux/releases/latest)**, open it and paste a draft; it works offline. Without the app: [one llama.cpp command](#option-2-one-command-llamacpp), or [AGENTS.md](AGENTS.md) for coding agents.
 
 ## Before and after
 
@@ -61,6 +75,7 @@ Most GGUF files come from one `llama-quantize` pass that rounds every weight to 
 |---|---|
 | **Mac** with Apple silicon (M1 or newer) | [`Humanizer-0.3.4-macos-arm64.dmg`](https://github.com/sgaofen/humanizer-local-model/releases/download/app-v0.3.4/Humanizer-0.3.4-macos-arm64.dmg), or the newest from **[Releases](https://github.com/sgaofen/humanizer-local-model/releases/latest)** |
 | **Windows** (x64) | [`Humanizer-0.3.4-windows-x64-setup.exe`](https://github.com/sgaofen/humanizer-local-model/releases/download/app-v0.3.4/Humanizer-0.3.4-windows-x64-setup.exe) (or the portable [`.zip`](https://github.com/sgaofen/humanizer-local-model/releases/download/app-v0.3.4/Humanizer-0.3.4-windows-x64-portable.zip)), or the newest from **[Releases](https://github.com/sgaofen/humanizer-local-model/releases/latest)** |
+| **Linux** (x64 AppImage, bring-your-own-server) | [`Humanizer-1.0.0-x86_64.AppImage`](https://github.com/FakeUser2121/humanizer-local-model-linux/releases/latest) — no bundled model: point it at your own `llama-server` URL, see the [guide at the top](#) and [`app/`](app/) |
 
 Double-click it and the app opens in your browser. On first run it looks at your memory, suggests a model size and downloads it once from Hugging Face. After that it works offline. Paste a draft on the left; the rewrite streams in on the right, with new wording highlighted and replaced wording struck through. On an M5 Max a hundred-word email takes about 3.6 seconds.
 

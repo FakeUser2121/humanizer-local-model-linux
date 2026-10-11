@@ -65,9 +65,9 @@ export async function* streamCompletion(body, signal) {
     signal,
   });
   if (!r.ok) {
-    let msg = `HTTP ${r.status}`;
-    try { const j = await r.json(); msg = j.error?.message || msg; } catch { /* 不是 JSON */ }
-    throw new Error(msg);
+    let msg = `HTTP ${r.status}`, type = '';
+    try { const j = await r.json(); msg = j.error?.message || msg; type = j.error?.type || ''; } catch { /* not JSON */ }
+    throw Object.assign(new Error(msg), { status: r.status, type, external: true });
   }
   const reader = r.body.getReader();
   const dec = new TextDecoder();

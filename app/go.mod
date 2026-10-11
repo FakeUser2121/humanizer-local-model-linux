@@ -1,4 +1,4 @@
-module github.com/sgaofen/humanizer/app
+module github.com/FakeUser2121/humanizer-local-model-linux/app
 
 go 1.24.1
 

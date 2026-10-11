@@ -1,5 +1,9 @@
 <img src="assets/banner-zh.png" alt="humanizer:把 AI 写的草稿改成像人写的" width="100%">
 
+> **🐧 Linux 用户看这里 → [Releases](https://github.com/FakeUser2121/humanizer-local-model-linux/releases/latest) 下载 Linux AppImage**：在浏览器里打开同样的改写界面，连你自己跑着的 llama-server（填它的 URL 就行），不用下载模型。用法和构建说明见 [`app/`](app/)。*本 fork 只增加了 Linux app，模型、评测和下面的文档都是上游 [sgaofen/humanizer-local-model](https://github.com/sgaofen/humanizer-local-model) 的原样内容。*
+>
+> ---
+
 <p align="center">
   <a href="LICENSE"><img alt="协议 Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-CDF54B?style=flat-square&labelColor=101216"></a>
   <a href="https://huggingface.co/jialinyyzz/humanizer"><img alt="Hugging Face 模型" src="https://img.shields.io/badge/model-jialinyyzz%2Fhumanizer-CDF54B?style=flat-square&labelColor=101216&logo=huggingface&logoColor=white"></a>

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Humanizer
+GenericName=AI draft rewriter
+Comment=Rewrite AI drafts with your own llama.cpp server
+Exec=humanizer %U
+Icon=humanizer
+Terminal=false
+Categories=Office;Utility;TextTools;
+Keywords=humanizer;llama.cpp;rewrite;
+StartupNotify=false

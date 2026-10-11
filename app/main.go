@@ -1,7 +1,8 @@
-// Humanizer 启动器:下载模型 → 拉起 llama-server → 托管网页并反代 /api/*。
+// Humanizer (Linux, bring-your-own-server edition).
 //
-// 网页(web/)和默认配置(config/default.json)都编译进二进制,发布时只需要
-// 启动器 + llama.cpp 引擎两样东西。开发时可以用 --web-dir 直接读磁盘上的网页。
+// A tiny local launcher: it serves the embedded web UI on 127.0.0.1 and proxies
+// rewrite requests to YOUR llama.cpp server (or any OpenAI-compatible server).
+// It does not download, bundle or start any model or inference engine.
 package main
 
 import (
@@ -9,7 +10,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/sgaofen/humanizer/app/internal/launcher"
+	"github.com/FakeUser2121/humanizer-local-model-linux/app/internal/launcher"
 )
 
 //go:embed web
@@ -18,7 +19,7 @@ var webFS embed.FS
 //go:embed config/default.json
 var defaultConfig []byte
 
-// 构建时用 -ldflags "-X main.version=..." 覆盖。
+// Overridden at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
 func main() {
